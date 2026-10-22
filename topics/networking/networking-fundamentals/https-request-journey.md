@@ -2,7 +2,8 @@
 
 This note follows one HTTPS request, `GET /cart` for `example.com`, from a
 browser to a web server. It goes one step at a time and shows what each layer
-adds on the client and removes on the server.
+adds on the client and removes on the server. For an overview of the layers,
+see [The OSI model](osi-model.md).
 
 The client is `203.0.113.10` and the server is `198.51.100.20`. Both are
 addresses reserved for documentation.
