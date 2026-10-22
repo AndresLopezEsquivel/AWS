@@ -16,7 +16,7 @@ flowchart LR
         direction TB
         subgraph C_APP ["Browser (application)"]
             direction TB
-            J1["(1) HTTP · layer 7<br/>writes the request<br/>GET /cart · Host: example.com"]
+            J1["(1) HTTP · layer 7<br/>writes the request<br/>GET /cart · Host: example.com"] --> J2["(2) TLS · often shown as layer 6<br/>encrypts the request"]
         end
         C_OS["Operating system<br/>(kernel)"]
         C_NIC["Network card + driver"]
@@ -56,7 +56,7 @@ On the client, each step adds a piece, normally in front of what was already
 there, so the message grows. On the server, each step removes one, until only
 the HTTP request is left.
 
-## Step 1: HTTP writes the request
+## Step 1: HTTP writes the request (layer 7)
 
 The journey starts inside the browser. The user has asked for a page, and the
 browser turns that into a message the web server can understand: an HTTP
@@ -108,6 +108,42 @@ been parsed.
 
 Message so far: `[ HTTP ]`
 
+## Step 2: TLS encrypts the request (often shown as layer 6)
+
+The HTTP request from step 1 isn't encrypted. If the browser sent it as is,
+anyone who could see the traffic on its way to the server (such as someone
+on the same Wi-Fi network, or any router along the path) could read it.
+That's why the browser passes it through TLS before handing it to the lower
+layers for delivery.
+
+TLS (Transport Layer Security) is a protocol that creates a secure channel
+between two programs communicating over a network, such as a browser and a
+web server. It gives that channel three guarantees: the server is always
+authenticated with a certificate and a signature, so the browser knows who
+it's talking to; only the two ends can read the data, because TLS encrypts it
+(confidentiality); and nobody in between can change the data without being
+detected (integrity). TLS doesn't deliver data itself: it relies on the layer
+below to deliver its bytes complete and in order, which TCP does.
+
+The channel is set up by the TLS handshake, a short exchange in which the
+browser and the server agree on the cryptographic algorithms to use, the
+server proves its identity, and both sides end up with shared keys that only
+they know. It happens once per connection, right after the TCP connection is
+established and before the first HTTP request; every request and response on
+that connection is then protected with those keys.
+
+HTTPS is HTTP sent through TLS. The messages are the same HTTP messages from
+step 1, with the same methods and headers; what changes is that they travel
+inside the TLS channel instead of as they are. An `https://` URL tells the
+browser three things: it must set up TLS before sending any request, it must
+check that the server's certificate matches the host in the URL (here,
+`example.com`), and it connects to port 443. `http://example.com/cart` and
+`https://example.com/cart` aren't the same resource reached two ways; the
+HTTP standard treats them as separate sites.
+
+Message so far: `[ TLS {HTTP} ]`. Together, `TLS {HTTP}` is what HTTPS
+means: an HTTP request inside the TLS channel.
+
 ## Sources
 
 - [ITU-T X.200 (07/94), the OSI reference model](https://www.itu.int/rec/T-REC-X.200-199407-I/en):
@@ -118,11 +154,14 @@ Message so far: `[ HTTP ]`
   the application layer, and IP addresses per network interface.
 - [RFC 5737, IPv4 Address Blocks Reserved for Documentation](https://www.rfc-editor.org/rfc/rfc5737).
 - [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
-  default ports, methods, the `Host` header.
+  default ports, methods, the `Host` header, the `https` scheme and
+  certificate verification.
 - [RFC 9112, HTTP/1.1](https://www.rfc-editor.org/rfc/rfc9112):
   the request line, and `Host` as a required header.
 - [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
   what ports identify.
+- [RFC 9846, TLS 1.3](https://www.rfc-editor.org/rfc/rfc9846) (replaces
+  RFC 8446): what TLS guarantees, the handshake, certificates and signatures.
 - [WHATWG Fetch Standard](https://fetch.spec.whatwg.org/):
   headers the browser controls, such as `Host`.
 - [nginx: How nginx processes a request](https://nginx.org/en/docs/http/request_processing.html):
