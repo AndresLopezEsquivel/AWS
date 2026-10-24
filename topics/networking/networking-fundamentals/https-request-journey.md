@@ -10,7 +10,7 @@ addresses reserved for documentation.
 
 **Sources for this section:**
 - [RFC 5737, IPv4 Address Blocks Reserved for Documentation](https://www.rfc-editor.org/rfc/rfc5737):
-  §3, the documentation address blocks.
+  Section 3, the documentation address blocks.
 
 ## The path
 
@@ -23,7 +23,10 @@ flowchart LR
             direction TB
             J1["(1) HTTP · layer 7<br/>writes the request<br/>GET /cart · Host: example.com"] --> J2["(2) TLS · often shown as layer 6<br/>encrypts the request"]
         end
-        C_OS["Operating system<br/>(kernel)"]
+        subgraph C_OS ["Operating system (kernel)"]
+            direction TB
+            J3["(3) TCP · layer 4<br/>adds ports<br/>source 51514 → destination 443"]
+        end
         C_NIC["Network card + driver"]
         C_APP -- socket --> C_OS --> C_NIC
     end
@@ -115,19 +118,20 @@ Message so far: `[ HTTP ]`
 
 **Sources for this step:**
 - [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
-  §9.3.1, the GET method; §7.2, the `Host` header; §4.2.1 and §4.2.2,
-  default ports 80 and 443.
+  Section 9.3.1, the GET method; Section 7.2, the `Host` header; Sections 4.2.1
+  and 4.2.2, default ports 80 and 443.
 - [RFC 9112, HTTP/1.1](https://www.rfc-editor.org/rfc/rfc9112):
-  §3, the request line; §3.2, `Host` is required in every HTTP/1.1 request.
+  Section 3, the request line; Section 3.2, `Host` is required in every HTTP/1.1
+  request.
 - [WHATWG Fetch Standard](https://fetch.spec.whatwg.org/#forbidden-request-header):
-  §2.2.2, `Host` is a forbidden request-header, so the browser sets it.
+  Section 2.2.2, `Host` is a forbidden request-header, so the browser sets it.
 - [RFC 1034, Domain Names: Concepts and Facilities](https://www.rfc-editor.org/rfc/rfc1034):
-  §5.2.1, resolvers translate host names into addresses.
+  Section 5.2.1, resolvers translate host names into addresses.
 - [RFC 1122, Requirements for Internet Hosts: Communication Layers](https://www.rfc-editor.org/rfc/rfc1122):
-  §1.3.3, an IP address identifies a logical network interface, and a host
-  can have several; §1.1.3, the application layer.
+  Section 1.3.3, an IP address identifies a logical network interface, and a
+  host can have several; Section 1.1.3, the application layer.
 - [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
-  §2.2, ports identify application services.
+  Section 2.2, ports identify application services.
 - [nginx: How nginx processes a request](https://nginx.org/en/docs/http/request_processing.html):
   "Name-based virtual servers", choosing a site by the `Host` header.
 - [Node.js `http` module](https://nodejs.org/api/http.html):
@@ -173,12 +177,64 @@ means: an HTTP request inside the TLS channel.
 
 **Sources for this step:**
 - [RFC 9846, TLS 1.3](https://www.rfc-editor.org/rfc/rfc9846) (replaces
-  RFC 8446): §1, what TLS guarantees and its need for a reliable, in-order
-  transport; §2, the handshake and the keys that protect traffic after it;
-  §4.5.1 and §4.5.2, the server's certificate and signature.
+  RFC 8446): Section 1, what TLS guarantees and its need for a reliable,
+  in-order transport; Section 2, the handshake and the keys that protect traffic
+  after it; Sections 4.5.1 and 4.5.2, the server's certificate and signature.
 - [RFC 5280, X.509 Certificates](https://www.rfc-editor.org/rfc/rfc5280):
-  §3.1 and §3.2, certificates bind a public key to a subject and are signed
-  by a certificate authority.
+  Sections 3.1 and 3.2, certificates bind a public key to a subject and are
+  signed by a certificate authority.
 - [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
-  §4.2.2, the `https` scheme, port 443, and no shared identity with `http`;
-  §4.3.4, the certificate must match the host.
+  Section 4.2.2, the `https` scheme, port 443, and no shared identity with
+  `http`; Section 4.3.4, the certificate must match the host.
+
+## Step 3: TCP adds ports (layer 4)
+
+The browser hands `TLS {HTTP}` to the operating system through the socket.
+From here down, the work is done by the operating system's kernel, not the
+browser. The kernel first passes the data to TCP (Transmission Control
+Protocol), which puts a TCP header in front of it.
+
+The header carries two ports. The destination port, 443, identifies the web
+server program on the server machine. The source port is a temporary number
+the operating system picks for this connection, such as 51514. Ports chosen
+this way are called ephemeral ports. The server sends its reply to that port,
+which is how the client's operating system knows which connection, and so
+which browser tab, the reply belongs to.
+
+TCP has two jobs. The first is reaching the right program. The IP address
+added in step 4 gets the data to the right machine, and the port gets it to
+the right program on that machine. The second is delivering the data complete
+and in order. Data can be lost, damaged or reordered on the way. TCP detects
+that, resends what was lost and puts the bytes back in order. This is the
+reliable delivery that step 2 said TLS depends on. To provide it, TCP first
+sets up a connection between the two ends. That's the TCP connection the TLS
+handshake waits for.
+
+TCP sends data in pieces called segments, each with its own TCP header. A
+large response may need many segments, but our request is small and fits in
+one.
+
+The ports are what layer 4 devices and services read later. On AWS, a
+security group allows traffic by protocol, port and source, for example "TCP
+port 443 from anywhere". It can see the port, but not `/cart`, which is inside
+the encrypted HTTP request. A Network Load Balancer (NLB) also works at this
+layer. It listens on a protocol and port and forwards each TCP connection to a
+target, without reading the HTTP request. On the server, the operating system
+uses destination port 443 to hand the data to the web server.
+
+Message so far: `[ TCP | TLS {HTTP} ]`
+
+**Sources for this step:**
+- [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
+  Section 2.2, ports, segments, and reliable, in-order delivery; Section 3.8,
+  retransmission.
+- [RFC 6056, Transport-Protocol Port Randomization](https://www.rfc-editor.org/rfc/rfc6056):
+  Section 1, ephemeral ports are chosen by the networking stack.
+- [ITU-T X.200 (07/94), the OSI reference model](https://www.itu.int/rec/T-REC-X.200-199407-I/en):
+  clause 7.4.4.1.1, transport functions such as sequence control and error
+  recovery.
+- [Amazon VPC User Guide: Security group rules](https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html):
+  "Components of a security group rule", protocol, port range and source.
+- [Elastic Load Balancing: What is a Network Load Balancer?](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html):
+  "Network Load Balancer overview", it works at layer 4; "Network Load Balancer
+  components", listeners use a protocol and port.
