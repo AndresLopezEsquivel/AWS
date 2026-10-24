@@ -8,6 +8,10 @@ see [The OSI model](osi-model.md).
 The client is `203.0.113.10` and the server is `198.51.100.20`. Both are
 addresses reserved for documentation.
 
+**Sources for this section:**
+- [RFC 5737, IPv4 Address Blocks Reserved for Documentation](https://www.rfc-editor.org/rfc/rfc5737):
+  §3, the documentation address blocks.
+
 ## The path
 
 ```mermaid
@@ -109,6 +113,28 @@ been parsed.
 
 Message so far: `[ HTTP ]`
 
+**Sources for this step:**
+- [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
+  §9.3.1, the GET method; §7.2, the `Host` header; §4.2.1 and §4.2.2,
+  default ports 80 and 443.
+- [RFC 9112, HTTP/1.1](https://www.rfc-editor.org/rfc/rfc9112):
+  §3, the request line; §3.2, `Host` is required in every HTTP/1.1 request.
+- [WHATWG Fetch Standard](https://fetch.spec.whatwg.org/#forbidden-request-header):
+  §2.2.2, `Host` is a forbidden request-header, so the browser sets it.
+- [RFC 1034, Domain Names: Concepts and Facilities](https://www.rfc-editor.org/rfc/rfc1034):
+  §5.2.1, resolvers translate host names into addresses.
+- [RFC 1122, Requirements for Internet Hosts: Communication Layers](https://www.rfc-editor.org/rfc/rfc1122):
+  §1.3.3, an IP address identifies a logical network interface, and a host
+  can have several; §1.1.3, the application layer.
+- [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
+  §2.2, ports identify application services.
+- [nginx: How nginx processes a request](https://nginx.org/en/docs/http/request_processing.html):
+  "Name-based virtual servers", choosing a site by the `Host` header.
+- [Node.js `http` module](https://nodejs.org/api/http.html):
+  introduction, the module parses messages into headers and body.
+- [ITU-T X.200 (07/94), the OSI reference model](https://www.itu.int/rec/T-REC-X.200-199407-I/en):
+  clause 7.1, the Application Layer.
+
 ## Step 2: TLS encrypts the request (often shown as layer 6)
 
 The HTTP request from step 1 isn't encrypted. If the browser sent it as is,
@@ -145,27 +171,14 @@ HTTP standard treats them as separate sites.
 Message so far: `[ TLS {HTTP} ]`. Together, `TLS {HTTP}` is what HTTPS
 means: an HTTP request inside the TLS channel.
 
-## Sources
-
-- [ITU-T X.200 (07/94), the OSI reference model](https://www.itu.int/rec/T-REC-X.200-199407-I/en):
-  clause 7.1, the Application Layer.
-- [RFC 1034, Domain Names: Concepts and Facilities](https://www.rfc-editor.org/rfc/rfc1034):
-  name-to-address translation.
-- [RFC 1122, Requirements for Internet Hosts: Communication Layers](https://www.rfc-editor.org/rfc/rfc1122):
-  the application layer, and IP addresses per network interface.
-- [RFC 5737, IPv4 Address Blocks Reserved for Documentation](https://www.rfc-editor.org/rfc/rfc5737).
-- [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
-  default ports, methods, the `Host` header, the `https` scheme and
-  certificate verification.
-- [RFC 9112, HTTP/1.1](https://www.rfc-editor.org/rfc/rfc9112):
-  the request line, and `Host` as a required header.
-- [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
-  what ports identify.
+**Sources for this step:**
 - [RFC 9846, TLS 1.3](https://www.rfc-editor.org/rfc/rfc9846) (replaces
-  RFC 8446): what TLS guarantees, the handshake, certificates and signatures.
-- [WHATWG Fetch Standard](https://fetch.spec.whatwg.org/):
-  headers the browser controls, such as `Host`.
-- [nginx: How nginx processes a request](https://nginx.org/en/docs/http/request_processing.html):
-  choosing a site by the `Host` header.
-- [Node.js `http` module](https://nodejs.org/api/http.html):
-  message parsing.
+  RFC 8446): §1, what TLS guarantees and its need for a reliable, in-order
+  transport; §2, the handshake and the keys that protect traffic after it;
+  §4.5.1 and §4.5.2, the server's certificate and signature.
+- [RFC 5280, X.509 Certificates](https://www.rfc-editor.org/rfc/rfc5280):
+  §3.1 and §3.2, certificates bind a public key to a subject and are signed
+  by a certificate authority.
+- [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
+  §4.2.2, the `https` scheme, port 443, and no shared identity with `http`;
+  §4.3.4, the certificate must match the host.
