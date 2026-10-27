@@ -25,7 +25,7 @@ flowchart LR
         end
         subgraph C_OS ["Operating system (kernel)"]
             direction TB
-            J3["(3) TCP · layer 4<br/>adds ports<br/>source 51514 → destination 443"] --> J4["(4) IP · layer 3<br/>adds IP addresses<br/>source 203.0.113.10 → destination 198.51.100.20"]
+            J3["(3) TCP · layer 4<br/>adds ports<br/>source 51514 → destination 443"] --> J4["(4) IP · layer 3<br/>adds IP addresses<br/>source 203.0.113.10 → destination 198.51.100.20"] --> J5["(5) Ethernet · layer 2<br/>adds MAC addresses<br/>source: client → destination: home router"]
         end
         C_NIC["Network card + driver"]
         C_APP -- socket --> C_OS --> C_NIC
@@ -326,3 +326,100 @@ Message so far: `[ IP | TCP | TLS {HTTP} ]`
 - [Amazon VPC User Guide: Network ACL rules](https://docs.aws.amazon.com/vpc/latest/userguide/nacl-rules.html):
   the parts of a rule: protocol, port range, source or destination, allow or
   deny.
+
+## Step 5: Ethernet adds the next device's address (layer 2)
+
+Still inside the kernel, IP hands the packet down to Ethernet, together with
+the address of the next hop it chose in step 4: the default gateway, the home
+router. Ethernet puts an Ethernet header in front of the packet. The packet
+then goes to the network card through its driver.
+
+The header carries two MAC addresses. A MAC address identifies one network
+interface, such as a network card. The destination MAC address,
+`00:00:5e:00:53:02`, is the home router's interface. The source MAC address,
+`00:00:5e:00:53:01`, is the client's network card. The header also records
+what is inside, here an IPv4 packet. With the Ethernet header added, the data
+is called a frame.
+
+Ethernet has one job: getting the frame to the next device on the same local
+network. IP and Ethernet answer different questions. The destination IP
+address says where the data is going in the end. The destination MAC address
+says who gets it next. Both kinds of address belong to a network interface,
+not to a whole machine: a router has one interface on each network it
+connects, each with its own addresses.
+
+The client knows the router's IP address from its settings, but a frame needs
+the router's MAC address. To find it, the client uses ARP (Address Resolution
+Protocol). It sends a request to every device on the local network, asking
+which device has that IP address. The router replies with its MAC address, and
+the client keeps the answer in a cache, so it doesn't ask again for every
+packet. IPv6 does the same job with Neighbor Discovery.
+
+This is how the hops from step 4 happen. Each router removes the frame it
+received, updates the IP header (for example, it lowers the TTL), and puts the
+packet in a new frame for the next network. In the new frame, the source MAC
+address is the router's own interface and the destination is the next router.
+So the MAC addresses change at every hop, while the IP addresses stay the
+same. The server's MAC address only appears on the last link, from the
+server's router to the server.
+
+Several kinds of device handle the frame on the way, and each reads only what
+its job needs:
+
+| Device | Layer | Connects | Reads |
+|---|---|---|---|
+| Switch | 2 | Devices on one local network | Destination MAC address |
+| Router | 3 | Different networks | Destination IP address |
+| Wi-Fi access point | 2 | Wireless devices to the local network | MAC addresses |
+
+A switch learns which MAC addresses are on each of its ports and forwards
+each frame by its destination MAC address. It works below IP, so it doesn't
+read IP addresses. A router is the device that removes the frame and builds a
+new one, as described above.
+
+If the client is on Wi-Fi, the first link uses Wi-Fi frames instead of
+Ethernet frames. They have the same job and also use MAC addresses. Ethernet
+also covers layer 1: an "Ethernet cable" is a cable built to the physical
+part of the Ethernet standard. That part is step 6.
+
+On AWS, layer 2 is hidden. There are no switches to configure; what you
+configure is routing, in route tables (step 4). Each elastic
+network interface (ENI) has a MAC address, along with its IP addresses and
+security groups. When an ENI is moved to another instance, its attributes,
+including the MAC address, move with it. The VPC doesn't forward broadcast
+frames between interfaces, and AWS checks that the MAC addresses in a frame
+belong to the interfaces sending and receiving it. When the frame reaches the
+server, the server's network card sees that the destination MAC address is
+its own, the kernel removes the Ethernet header, and passes the packet to IP.
+
+Message so far: `[ ETH | IP | TCP | TLS {HTTP} ]`
+
+**Sources for this step:**
+- [RFC 894, Transmission of IP Datagrams over Ethernet Networks](https://www.rfc-editor.org/rfc/rfc894):
+  "Frame Format", IP packets are carried in Ethernet frames, with a type
+  field for IP.
+- [RFC 826, An Ethernet Address Resolution Protocol](https://www.rfc-editor.org/rfc/rfc826):
+  "Packet Generation", ARP finds the 48-bit Ethernet address for an IP address
+  by broadcasting a request, and keeps answers in a table.
+- [RFC 1122, Requirements for Internet Hosts: Communication Layers](https://www.rfc-editor.org/rfc/rfc1122):
+  Section 2.3.2.1, the ARP cache.
+- [RFC 4861, Neighbor Discovery for IPv6](https://www.rfc-editor.org/rfc/rfc4861):
+  Section 1, address resolution in IPv6.
+- [RFC 1812, Requirements for IP Version 4 Routers](https://www.rfc-editor.org/rfc/rfc1812):
+  Section 1, a router removes the link layer header, changes the IP header,
+  and adds a new link layer header.
+- [RFC 4188, Definitions of Managed Objects for Bridges](https://www.rfc-editor.org/rfc/rfc4188):
+  Section 3, bridges (switches) connect local network segments below the
+  network layer.
+- [RFC 7368, IPv6 Home Networking Architecture Principles](https://www.rfc-editor.org/rfc/rfc7368):
+  Section 3.2.1, a switch learns MAC addresses on its ports.
+- [RFC 9542, IANA Considerations and IETF Protocol and Documentation Usage for IEEE 802 Parameters](https://www.rfc-editor.org/rfc/rfc9542):
+  Section 2.1.4, MAC addresses reserved for documentation.
+- [IEEE 802.3-2022, Standard for Ethernet](https://standards.ieee.org/ieee/802.3/10422/):
+  Ethernet defines both the MAC (layer 2) and the physical layer (layer 1).
+- [Amazon EC2 User Guide: Elastic network interfaces](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html):
+  a network interface has a MAC address, and its attributes follow it to
+  another instance.
+- [AWS Networking blog: Setting up Layer 2 networking on Amazon EC2](https://aws.amazon.com/blogs/networking-and-content-delivery/setting-up-layer-2-networking-on-amazon-ec2/):
+  the VPC doesn't forward broadcast and multicast frames between ENIs; the
+  hypervisor checks MAC addresses.
