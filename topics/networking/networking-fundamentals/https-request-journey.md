@@ -27,7 +27,10 @@ flowchart LR
             direction TB
             J3["(3) TCP · layer 4<br/>adds ports<br/>source 51514 → destination 443"] --> J4["(4) IP · layer 3<br/>adds IP addresses<br/>source 203.0.113.10 → destination 198.51.100.20"] --> J5["(5) Ethernet · layer 2<br/>adds MAC addresses<br/>source: client → destination: home router"]
         end
-        C_NIC["Network card + driver"]
+        subgraph C_NIC ["Network card + driver"]
+            direction TB
+            J6["(6) Physical · layer 1<br/>sends the bits as signals<br/>electrical, light or radio"]
+        end
         C_APP -- socket --> C_OS --> C_NIC
     end
 
@@ -423,3 +426,103 @@ Message so far: `[ ETH | IP | TCP | TLS {HTTP} ]`
 - [AWS Networking blog: Setting up Layer 2 networking on Amazon EC2](https://aws.amazon.com/blogs/networking-and-content-delivery/setting-up-layer-2-networking-on-amazon-ec2/):
   the VPC doesn't forward broadcast and multicast frames between ENIs; the
   hypervisor checks MAC addresses.
+
+## Step 6: The network card sends the bits as signals (layer 1)
+
+The driver hands the frame to the network card. To the card, the frame is a
+string of bits, a row of 0s and 1s. A bit can't travel down a cable as a
+number, so the card turns the bits into signals: physical changes that the
+device at the other end can detect and turn back into the same bits. The
+kind of signal depends on the medium, the path the signal travels through:
+
+| Medium | Signal | Used by |
+|---|---|---|
+| Copper cable | Electrical | Ethernet |
+| Optical fiber | Light | Ethernet |
+| Air | Radio | Wi-Fi |
+
+The physical layer has one job: carrying bits to the device at the other end
+of the cable or radio connection. It reads nothing. It doesn't know which bits
+are a MAC address or part of the HTTP request, and it adds no header. Its
+standards define the plug and the cable, the signal levels that mean 0 and 1,
+what each wire is for, and the steps to bring a connection up. For an
+Ethernet cable plugged into a laptop, the shape of the plug and the voltages
+both come from the physical part of the Ethernet standard.
+
+A signal travels over one cable or radio connection, never further. Every
+device that receives it turns it back into bits and sends a fresh signal on
+the next connection. Take a laptop on Wi-Fi whose home router reaches the ISP
+(Internet Service Provider, the company that sells the internet access) over
+fiber. The bits reach the router as radio and leave as light. In between, the
+router builds a new frame (step 5). So the signal changes on every
+connection and the frame on every hop, while the IP packet inside stays the
+same. One hop can include several connections: laptop → switch → home router
+is one hop over two cables, because the switch doesn't read IP addresses. A
+repeater works only at layer 1. It receives a signal and sends the same bits
+on as a fresh signal, without reading them.
+
+The physical layer delivers bits in the order they were sent, but not always
+intact. A signal can be disturbed on the way, and bits can arrive damaged.
+The physical layer doesn't fix this; at most, it reports a fault to layer 2.
+The layers above deal with it. Ethernet checks each frame on arrival and
+doesn't pass a damaged one up, and TCP on the client notices the missing data
+and sends it again (step 3). A damaged bit costs a resend, which shows up as
+delay, not as a failed request. A physical connection is described by its
+transmission rate, or bandwidth, in bits per second (Ethernet ranges from
+1 Mb/s to 400 Gb/s), by its delay, and by its error rate.
+
+On AWS, the physical layer belongs to AWS. Under the shared responsibility
+model, AWS runs the hardware, networking and facilities, so there are no
+cables or network cards for you to manage. What you choose is bandwidth, and
+only indirectly: an EC2 instance's network speed depends on its instance
+type, and enhanced networking with the Elastic Network Adapter (ENA) reaches
+up to 100 Gbps. The exception is AWS Direct Connect, a fiber-optic cable from
+your router to an AWS router at a Direct Connect location. There you deal
+with layer 1 yourself:
+- the fiber type and transceiver AWS requires;
+- a port speed of 1, 10, 100 or 400 Gbps, fixed once requested;
+- the cross connect, the cable the facility installs between your equipment
+  and AWS's.
+
+AWS's Direct Connect troubleshooting guide starts with "layer 1 (physical)
+issues". When the signals reach the server, its network card turns them back
+into bits, and the frame goes up to be checked as described in step 5.
+
+Message so far: `[ ETH | IP | TCP | TLS {HTTP} ]`, unchanged. Layer 1 adds
+nothing; it sends these bits as signals.
+
+**Sources for this step:**
+- [ITU-T X.200 (07/94), the OSI reference model](https://www.itu.int/rec/T-REC-X.200-199407-I/en):
+  - clause 7.7.2, the mechanical, electrical, functional and procedural
+    means for bit transmission, and relaying within layer 1;
+  - clause 7.7.3.3.1, bits are carried transparently;
+  - clause 7.7.3.7, bits are delivered in order;
+  - clause 7.7.3.8, fault notification to layer 2;
+  - clause 7.7.3.9, error rate, transmission rate and transit delay.
+- [IEEE 802.3-2022, Standard for Ethernet](https://standards.ieee.org/ieee/802.3/10422/):
+  speeds from 1 Mb/s to 400 Gb/s, over coaxial, twisted pair or fiber optic
+  cable.
+- [IEEE 802.11-2024, Wireless LAN MAC and PHY](https://standards.ieee.org/ieee/802.11/10548/):
+  the physical layer for Wi-Fi.
+- [RFC 2108, IEEE 802.3 Repeater Devices MIB](https://www.rfc-editor.org/rfc/rfc2108):
+  Section 2.2, Ethernet repeaters.
+- [RFC 4861, Neighbor Discovery for IPv6](https://www.rfc-editor.org/rfc/rfc4861):
+  Section 2.1, a link can span bridged (switched) Ethernets.
+- [RFC 1812, Requirements for IP Version 4 Routers](https://www.rfc-editor.org/rfc/rfc1812):
+  Section 1, a router builds a new link layer header.
+- [RFC 3635, Ethernet-like Interface Types MIB](https://www.rfc-editor.org/rfc/rfc3635):
+  - Section 3.2.5, invalid frames are normally not passed up;
+  - Section 4 (`dot3StatsFCSErrors`), frames that fail the frame check are
+    counted as errors.
+- [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
+  Section 3.8, retransmission.
+- [AWS shared responsibility model](https://aws.amazon.com/compliance/shared-responsibility-model/):
+  AWS runs the hardware, networking and facilities.
+- [Amazon EC2 User Guide: Enhanced networking](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/enhanced-networking.html):
+  speed per instance type, and ENA up to 100 Gbps.
+- [Direct Connect User Guide: What is Direct Connect?](https://docs.aws.amazon.com/directconnect/latest/UserGuide/Welcome.html):
+  fiber-optic cable to an AWS router, and the fiber and transceiver
+  requirements.
+- [Direct Connect User Guide: Dedicated connections](https://docs.aws.amazon.com/directconnect/latest/UserGuide/dedicated_connection.html):
+  port speeds, and the cross connect.
+- [Direct Connect User Guide: Troubleshoot layer 1 (physical) issues](https://docs.aws.amazon.com/directconnect/latest/UserGuide/ts_layer_1.html).
