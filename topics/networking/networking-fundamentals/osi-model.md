@@ -16,7 +16,7 @@ does its work. A dash means the journey doesn't show that layer.
 | 6 Presentation | Agrees on how data is represented, such as format and compression | — | None separate (see notes) | Application | Step 2 (TLS, by convention) |
 | 5 Session | Organizes the dialogue between the two ends: opening, closing, synchronizing | — | None separate (see notes) | Application | — |
 | 4 Transport | Delivers data between two programs, identified by ports, and (TCP) makes delivery reliable and in order | Segment (TCP), datagram (UDP) | TCP, UDP | Transport | Step 3 |
-| 3 Network | Delivers data between machines across networks, using IP addresses | Packet (IP datagram) | IPv4, IPv6 | Internet | Step 4 |
+| 3 Network | Delivers data between machines across networks, hop by hop, using IP addresses | Packet (IP datagram) | IPv4, IPv6 | Internet | Step 4 |
 | 2 Data link | Delivers data between devices on the same local network, using MAC addresses | Frame | Ethernet, Wi-Fi | Link | Step 5 |
 | 1 Physical | Turns bits into signals on a cable or over the air | Bit | Ethernet and Wi-Fi physical layers | Link (see notes) | Step 6 |
 

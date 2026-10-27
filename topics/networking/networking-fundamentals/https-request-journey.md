@@ -25,7 +25,7 @@ flowchart LR
         end
         subgraph C_OS ["Operating system (kernel)"]
             direction TB
-            J3["(3) TCP · layer 4<br/>adds ports<br/>source 51514 → destination 443"]
+            J3["(3) TCP · layer 4<br/>adds ports<br/>source 51514 → destination 443"] --> J4["(4) IP · layer 3<br/>adds IP addresses<br/>source 203.0.113.10 → destination 198.51.100.20"]
         end
         C_NIC["Network card + driver"]
         C_APP -- socket --> C_OS --> C_NIC
@@ -238,3 +238,91 @@ Message so far: `[ TCP | TLS {HTTP} ]`
 - [Elastic Load Balancing: What is a Network Load Balancer?](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html):
   "Network Load Balancer overview", it works at layer 4; "Network Load Balancer
   components", listeners use a protocol and port.
+
+## Step 4: IP adds addresses (layer 3)
+
+Still inside the kernel, TCP hands the segment to IP (Internet Protocol),
+which puts an IP header in front of it.
+
+The header carries two addresses. The destination address, `198.51.100.20`,
+is the server; DNS resolution found it before step 1. The source address,
+`203.0.113.10`, is the client, so the server knows where to send the reply.
+The header also records which protocol is inside (here, TCP) and a counter
+called TTL (time to live), explained below. With the IP header added, the
+data is called a packet.
+
+IP has one job: getting data from one machine to another across many
+networks. The port from step 3 picks the program, but only once the data has
+reached the right machine. Getting it there is IP's job.
+
+No device knows the whole path from the client to the server. Each router
+only decides where the packet should go next, and each of those moves is
+called a hop:
+
+```
+client → home router → ISP router → … many routers … → server's router → server
+```
+
+The first decision is made on the client. The kernel checks whether the
+destination is on its own local network. It isn't, so the packet goes to the
+default gateway, the nearest router. From there, every router does the same
+thing: it reads the destination IP address, looks it up in its route table,
+and forwards the packet to the next router. When several routes match, it
+uses the most specific one. Routers don't read the ports or the HTTP request;
+the destination address is all they need.
+
+Each router also lowers the TTL by one. If the TTL reaches zero, the router
+discards the packet and tells the sender. This stops a packet from circling
+forever when routes are misconfigured. In IPv6, the same field is called Hop
+Limit, which describes what it does in practice.
+
+Two things follow from working hop by hop. First, the IP addresses stay the
+same from end to end: every router sees source `203.0.113.10` and destination
+`198.51.100.20`. Second, reaching the next router requires that router's
+address on the local network, which IP doesn't provide. That's step 5.
+
+IP doesn't guarantee delivery. Packets can arrive damaged, duplicated, out
+of order, or not at all, and IP doesn't fix that. That's why TCP's
+reliability from step 3 sits on top of it: IP moves each packet toward the
+right machine, and TCP makes sure all the data arrives complete and in order.
+
+On AWS, a VPC route table decides where traffic leaving a subnet goes next,
+as a router's route table does. Each route has a destination, a range of IP
+addresses written as a CIDR block, and a target, such as an internet gateway.
+Traffic is matched by its destination IP address, and the most specific route
+wins. A route `0.0.0.0/0 → internet gateway` matches every address, so
+anything without a more specific route goes out to the internet. A network
+ACL (NACL) filters traffic as it enters and leaves a subnet. Its rules match
+on protocol, port range, and source or destination IP range, so like a
+security group it reads layers 3 and 4. Unlike a security group, a NACL is
+stateless: allowing inbound port 443 doesn't automatically allow the reply.
+The reply goes back to the client's ephemeral port from step 3, so it needs
+its own outbound rule. When the packet reaches the server, the server's
+operating system sees that the destination address is its own, removes the
+IP header, and passes the segment to TCP.
+
+Message so far: `[ IP | TCP | TLS {HTTP} ]`
+
+**Sources for this step:**
+- [RFC 791, Internet Protocol](https://www.rfc-editor.org/rfc/rfc791):
+  Section 1.2, delivery across interconnected networks, with no reliability
+  mechanisms; Section 2.2, a datagram's path through a gateway; Section 3.1,
+  the Time to Live and Protocol fields.
+- [RFC 1122, Requirements for Internet Hosts: Communication Layers](https://www.rfc-editor.org/rfc/rfc1122):
+  Section 1.1.3, IP gives no delivery guarantees; Section 3.2.1.3, a host
+  discards datagrams not addressed to it; Sections 3.3.1 and 3.3.1.1, the
+  local/remote decision and sending to a gateway.
+- [RFC 1812, Requirements for IP Version 4 Routers](https://www.rfc-editor.org/rfc/rfc1812):
+  Section 5.2.4.3, choosing the longest matching route; Section 5.3.1, each
+  router lowers the TTL, and a packet at zero is discarded and reported.
+- [RFC 8200, IPv6](https://www.rfc-editor.org/rfc/rfc8200):
+  Section 3, the Hop Limit field.
+- [Amazon VPC User Guide: Configure route tables](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html):
+  routes have a destination and a target, matched by destination IP address.
+- [Amazon VPC User Guide: How route priority works](https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html):
+  "Longest prefix match", the most specific route wins.
+- [Amazon VPC User Guide: Control subnet traffic with network ACLs](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html):
+  "Network ACL basics", subnet level and stateless.
+- [Amazon VPC User Guide: Network ACL rules](https://docs.aws.amazon.com/vpc/latest/userguide/nacl-rules.html):
+  the parts of a rule: protocol, port range, source or destination, allow or
+  deny.
