@@ -22,7 +22,7 @@ does its work. A dash means the journey doesn't show that layer.
 | 4 Transport | Delivers data between two programs, identified by ports, and (TCP) makes delivery reliable and in order | Segment (TCP), datagram (UDP) | TCP, UDP | — | Transport | Step 3 |
 | 3 Network | Delivers data between machines across networks, hop by hop, using IP addresses | Packet (IP datagram) | IPv4, IPv6 | Router | Internet | Step 4 |
 | 2 Data link | Delivers data to the next device on the same local network, using MAC addresses | Frame | Ethernet, Wi-Fi | Switch, Wi-Fi access point | Link | Step 5 |
-| 1 Physical | Turns bits into signals on a cable or over the air | Bit | Ethernet and Wi-Fi physical layers | — | Link (see notes) | Step 6 |
+| 1 Physical | Turns bits into signals on a cable or over the air | Bit | Ethernet and Wi-Fi physical layers | Repeater | Link (see notes) | Step 6 |
 
 **Layers 5 and 6 in TCP/IP.** TCP/IP has no separate session or presentation
 layer. Its application layer covers OSI layers 5 to 7, so applications such as
@@ -38,17 +38,50 @@ mention a physical layer. Putting layers 1 and 2 under "Link" is a textbook
 mapping. Ethernet and Wi-Fi each cover both layers: their standards define the
 MAC (layer 2) and the physical layer (layer 1).
 
+## What changes on the way
+
+The sender adds the layers and the receiver removes them. This table is
+about the devices in between: which layers they change while the message
+travels.
+
+A **hop** is one trip from one device that reads IP addresses (a computer,
+a server or a router) to the next. A switch doesn't read IP addresses, so
+it doesn't end a hop: laptop → switch → home router is one hop over two
+cable connections.
+
+| Layer | Changed on the way? | By whom |
+|---|---|---|
+| 7 HTTP | No | Nobody: it's encrypted, so the devices in between can't read it |
+| 6 TLS | No | Nobody: TLS detects any change made on the way |
+| 4 TCP | No | Nobody: only the two ends use it |
+| 3 IP | Only a little | Every router lowers the TTL by one; the addresses stay |
+| 2 Ethernet | Yes, on every hop | Every router builds a new frame, with new MAC addresses |
+| 1 Physical | Yes, on every cable or radio connection | Every device sends a fresh signal; the bits stay the same |
+
+The lower the layer, the more often it changes. Layers 4 to 7 travel
+untouched from end to end, while layer 1 changes on every cable or radio
+connection.
+
+Two exceptions:
+- **NAT** (network address translation), which home routers usually do,
+  rewrites the IP addresses and TCP ports.
+- **A device that decrypts TLS**, because it holds the keys (such as a load
+  balancer), ends the TLS connection. It can read layer 7 and change it.
+
 ## Sources
 
 - [ITU-T X.200 (07/94), the OSI reference model](https://www.itu.int/rec/T-REC-X.200-199407-I/en):
-  clauses 7.1–7.7, the purpose of each layer.
+  clauses 7.1–7.7, the purpose of each layer; clause 7.7.2, devices in
+  between may relay bits within layer 1; clause 7.7.3.3.1, bits are carried
+  transparently.
 - [RFC 1122, Requirements for Internet Hosts: Communication Layers](https://www.rfc-editor.org/rfc/rfc1122):
   the four TCP/IP layers and how the application layer relates to OSI
   (Section 1.1.3); segment, datagram, packet and frame (Section 1.3.3).
 - [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
   HTTP messages.
 - [RFC 9846, TLS 1.3](https://www.rfc-editor.org/rfc/rfc9846):
-  TLS runs over a reliable transport.
+  TLS runs over a reliable transport; Section 1, data is visible only to
+  the endpoints and can't be modified without detection.
 - [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
   segments, ports, and reliable, in-order delivery (Section 2.2).
 - [RFC 768, User Datagram Protocol](https://www.rfc-editor.org/rfc/rfc768):
@@ -58,10 +91,18 @@ MAC (layer 2) and the physical layer (layer 1).
 - [RFC 8200, IPv6](https://www.rfc-editor.org/rfc/rfc8200):
   IPv6 as the successor to IPv4.
 - [RFC 1812, Requirements for IP Version 4 Routers](https://www.rfc-editor.org/rfc/rfc1812):
-  Section 1, routers forward packets at the network layer.
+  Section 1, routers forward packets at the network layer, removing the
+  link layer header and adding a new one; Section 5.3.1, each router
+  decreases the TTL.
+- [RFC 4861, Neighbor Discovery for IPv6](https://www.rfc-editor.org/rfc/rfc4861):
+  Section 2.1, a link can span bridged (switched) Ethernets.
+- [RFC 3022, Traditional NAT](https://www.rfc-editor.org/rfc/rfc3022):
+  Section 2.2, NAPT translates addresses and ports.
 - [RFC 4188, Definitions of Managed Objects for Bridges](https://www.rfc-editor.org/rfc/rfc4188):
   Section 3, bridges (switches) connect local network segments below the
   network layer.
+- [RFC 2108, IEEE 802.3 Repeater Devices MIB](https://www.rfc-editor.org/rfc/rfc2108):
+  Section 2.2, Ethernet repeaters.
 - [IEEE 802.3-2022, Standard for Ethernet](https://standards.ieee.org/ieee/802.3/10422/):
   MAC and physical layer.
 - [IEEE 802.11-2024, Wireless LAN MAC and PHY](https://standards.ieee.org/ieee/802.11/10548/):
