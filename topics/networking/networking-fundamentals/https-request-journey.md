@@ -41,7 +41,19 @@ flowchart LR
 
     subgraph SERVER ["SERVER MACHINE · 198.51.100.20"]
         direction BT
-        S_NIC["Network card + driver"] --> S_OS["Operating system<br/>(kernel)"] -- socket --> S_APP["Web server<br/>(application)"]
+        subgraph S_NIC ["Network card + driver"]
+            direction BT
+            J11["(11) Physical · layer 1<br/>turns the signals back into bits"]
+        end
+        subgraph S_OS ["Operating system (kernel)"]
+            direction BT
+            J12["(12) Ethernet · layer 2<br/>checks the frame and the destination MAC<br/>removes the frame"] --> J13["(13) IP · layer 3<br/>checks the destination IP<br/>removes the IP header"] --> J14["(14) TCP · layer 4<br/>finds the program on port 443<br/>removes the TCP header"]
+        end
+        subgraph S_APP ["Web server (application)"]
+            direction BT
+            J15["(15) TLS · often shown as layer 6<br/>decrypts the request"] --> J16["(16) HTTP · layer 7<br/>reads GET /cart · Host: example.com<br/>answers with a status code"]
+        end
+        S_NIC --> S_OS -- socket --> S_APP
     end
 
     CLIENT -- signals --> NET -- signals --> SERVER
@@ -755,3 +767,172 @@ work.
 - [AWS Network Firewall: What is AWS Network Firewall?](https://docs.aws.amazon.com/network-firewall/latest/developerguide/what-is-aws-network-firewall.html)
   and [Stateful domain list rule groups](https://docs.aws.amazon.com/network-firewall/latest/developerguide/stateful-rule-groups-domain-names.html):
   filtering at the VPC perimeter, by the TLS SNI or HTTP `Host` header.
+
+## On the server
+
+The server takes the message apart in the reverse order the client built
+it. The last piece the client added is the first one the server removes,
+so the message shrinks at every step. In the diagram, these are (11) to
+(16).
+
+At every layer, the server asks two questions:
+1. **Is this for me?** Each layer checks the address it understands. If
+   the check fails, the message is dropped there, and the layers above
+   never see it.
+2. **Who gets it next?** Each piece carries a field naming the layer
+   above it, and the server uses it to hand on the rest.
+
+| Step | Layer | Is this for me? | Who gets it next? |
+|---|---|---|---|
+| (11) | 1 Physical | Not checked: it reads nothing | Ethernet |
+| (12) | 2 Ethernet | Destination MAC address | Type field `0800`: IPv4 |
+| (13) | 3 IP | Destination IP address | Protocol field: TCP |
+| (14) | 4 TCP | Destination port: a program must listen on it | The web server, listening on 443 |
+| (15) | 6 TLS | Decryption succeeds: nothing was changed on the way | HTTP |
+| (16) | 7 HTTP | — | The web server reads the request and answers |
+
+### (11) and (12): the network card and Ethernet
+
+The server's network card turns the signals back into bits. They are the
+bits the last router sent, on a fresh signal (step 6). Then Ethernet
+checks the frame:
+- **Damaged?** The frame ends with a frame check sequence (FCS), a value
+  computed from the frame's bits. A frame whose bits don't match it is
+  counted as an error and not passed up. Ethernet doesn't ask for a
+  resend: the client's TCP notices the missing data and sends it again
+  (step 3). Damage is detected on each hop, but fixed end to end.
+- **For me?** The destination MAC address is the server's own, because
+  the last router addressed the frame to it.
+- **Who gets it next?** The type field says `0800`, IPv4. The kernel
+  removes the Ethernet header and hands the packet, the frame's payload,
+  to IP.
+
+The source MAC address in this frame is the last router's, not the
+client's. Every router builds a new frame (step 5), so the client's MAC
+address never leaves the client's own network.
+
+### (13): IP
+
+IP repeats the same checks, one layer up:
+- **Damaged?** The IP header has its own checksum. If it fails, the
+  packet is silently discarded.
+- **For me?** The destination IP address must be one of the server's
+  addresses, or a broadcast or multicast address it accepts. Otherwise,
+  the packet is silently discarded.
+- **Who gets it next?** The Protocol field says TCP. IP removes its
+  header and hands the segment to TCP.
+
+The two "for me?" checks answer different questions. The MAC address
+check asks "was this frame delivered to me on this hop?", and the IP
+address check asks "am I the final destination?". They can disagree.
+Say an IP address moves to another machine, but a router's ARP cache
+(step 5) still maps it to the old machine's MAC address. The old
+machine's network card accepts the frame, and its IP layer discards the
+packet.
+
+Unlike the source MAC address, the source IP address is still the
+client's: IP addresses stay the same from end to end. The exception is
+NAT, from "What changes on the way": behind a home router that does NAT,
+the server sees the router's public address. This is why a security
+group can filter by the client's IP address but never by its MAC
+address. A rule can only use what reaches the server.
+
+### (14): TCP
+
+TCP's address doesn't name a machine but a program, through the port:
+- **For me?** A program must be listening on the destination port. The
+  web server listens on 443, waiting for connections from any client.
+  If no program listens on the port, TCP discards the data and sends
+  back a reset (RST), a segment that tells the client there is no
+  connection. The kernel's TCP sends it, so the web server never knows
+  about the attempt.
+- **Which connection?** One web server talks to many clients at once,
+  all on port 443. TCP tells them apart by four values: client IP
+  address, client port, server IP address, server port. A connection is
+  a pair of sockets, and a socket is an IP address and a port. Two
+  laptops behind the same NAT share one public IP address, but NAT also
+  rewrites the client port, so each connection leaves with its own
+  public port and the four values still differ.
+
+Then TCP does the work promised in step 3. It puts the bytes back in
+order, acknowledges what arrived, removes its header and hands the bytes
+to the web server through the socket.
+
+### (15) and (16): TLS and HTTP
+
+As in the browser, TLS runs inside the web server program, not in the
+kernel. The web server decrypts each record with the session keys from
+the handshake, in which it proved it holds the private key for its
+certificate. Decrypting and checking are one operation. If even one byte
+was changed on the way, decryption fails, and the server ends the
+connection with a `bad_record_mac` alert. The web server's code never
+sees the altered request.
+
+What's left is the plain HTTP request. The web server reads the method,
+`GET`, the target, `/cart`, and the `Host` header, `example.com`. One
+server can host several sites on the same IP address and port, and the
+`Host` header tells them apart. The server needs the site's name once
+before that: to decrypt, it first has to present the right certificate,
+and the SNI sent at the start of TLS tells it which one (see "Encryption
+sets a ceiling"). SNI picks the certificate, and `Host` picks the site.
+
+The web server answers with a response that carries a status code, such
+as `200` (OK) or `404` (not found). The first digit gives the class of
+the result. The response makes the same journey back through steps 1 to
+6, with the server as the sender: the two IP addresses and the two ports
+swap places.
+
+On AWS, a security group acts as a virtual firewall for the instance, so
+traffic its rules don't allow never reaches these steps. With an ALB in
+front, the ALB does (15) and (16) for the client's connection: it
+decrypts, reads the request and picks a target. It then opens a new
+connection to the instance, using the target group's protocol and port,
+and only to targets that pass health checks. So the instance's IP layer
+sees the ALB's IP address as the source, and the client's address
+arrives in the `X-Forwarded-For` header (see "Encryption sets a
+ceiling").
+
+Message so far, step by step:
+`[ ETH | IP | TCP | TLS {HTTP} ]` → `[ IP | TCP | TLS {HTTP} ]` →
+`[ TCP | TLS {HTTP} ]` → `[ TLS {HTTP} ]` → `[ HTTP ]`
+
+**Sources for this section:**
+- [RFC 894, Transmission of IP Datagrams over Ethernet Networks](https://www.rfc-editor.org/rfc/rfc894):
+  "Frame Format", the type field `0800` for IP.
+- [RFC 3635, Ethernet-like Interface Types MIB](https://www.rfc-editor.org/rfc/rfc3635):
+  - Section 3.2.5, invalid frames are normally not passed up;
+  - Section 4 (`dot3StatsFCSErrors`), frames that fail the frame check
+    are counted as errors.
+- [RFC 1812, Requirements for IP Version 4 Routers](https://www.rfc-editor.org/rfc/rfc1812):
+  Section 1, a router builds a new link layer header.
+- [RFC 791, Internet Protocol](https://www.rfc-editor.org/rfc/rfc791):
+  Section 3.1, the Protocol field names the next level protocol.
+- [RFC 1122, Requirements for Internet Hosts: Communication Layers](https://www.rfc-editor.org/rfc/rfc1122):
+  - Section 2.3.2.1, the ARP cache;
+  - Section 3.2.1.2, a host discards datagrams with a bad header
+    checksum;
+  - Section 3.2.1.3, a host discards datagrams not addressed to it.
+- [RFC 3022, Traditional NAT](https://www.rfc-editor.org/rfc/rfc3022):
+  Section 2.2, NAPT translates addresses and ports.
+- [RFC 9293, Transmission Control Protocol](https://www.rfc-editor.org/rfc/rfc9293):
+  - Section 3.3.2, the LISTEN state;
+  - Section 3.4.1, a connection is defined by a pair of sockets;
+  - Section 3.8, retransmission;
+  - Section 3.10.7.1, a segment for a closed port gets a reset.
+- [RFC 9846, TLS 1.3](https://www.rfc-editor.org/rfc/rfc9846):
+  - Section 4.5.2, the server proves it holds the private key;
+  - Section 5.2, decryption fails if a record was changed, and the
+    connection ends with `bad_record_mac`.
+- [RFC 6066, TLS Extensions](https://www.rfc-editor.org/rfc/rfc6066):
+  Section 3, the Server Name Indication extension.
+- [RFC 9110, HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110):
+  - Section 3.4, requests and responses;
+  - Section 7.2, the `Host` header;
+  - Section 15, status codes and their classes.
+- [Amazon EC2 User Guide: Amazon EC2 security groups](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-security-groups.html):
+  a virtual firewall for the instance.
+- [ELB: Target groups for your Application Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html):
+  routing to targets by the target group's protocol and port, and only
+  to healthy targets.
+- [ELB: HTTP headers and Application Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/x-forwarded-headers.html):
+  `X-Forwarded-For`.
