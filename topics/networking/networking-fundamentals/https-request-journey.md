@@ -36,7 +36,7 @@ flowchart LR
 
     subgraph NET ["NETWORK"]
         direction TB
-        SW["Switch"] --> R1["Router"] --> INET["Internet<br/>many routers"] --> LAN["Server's LAN<br/>last router and switch"]
+        SW["(7) Switch · layer 2<br/>reads the destination MAC"] --> R1["(8) Home router · layer 3<br/>reads the destination IP"] --> INET["(9) Internet · layer 3<br/>many routers, each reads the destination IP"] --> LAN["(10) Server's LAN · layers 3 and 2<br/>last router, then a switch"]
     end
 
     subgraph SERVER ["SERVER MACHINE · 198.51.100.20"]
@@ -526,3 +526,232 @@ nothing; it sends these bits as signals.
 - [Direct Connect User Guide: Dedicated connections](https://docs.aws.amazon.com/directconnect/latest/UserGuide/dedicated_connection.html):
   port speeds, and the cross connect.
 - [Direct Connect User Guide: Troubleshoot layer 1 (physical) issues](https://docs.aws.amazon.com/directconnect/latest/UserGuide/ts_layer_1.html).
+
+## Who reads what on the way
+
+On its way to the server, the message passes devices and AWS services that
+read parts of it to decide what to do with it. Reading a layer means looking
+at its header to make that decision. Each of these players reads only as
+deep as its job needs. Everything above that is payload: bytes it carries
+without reading them. In the diagram, these are (7) to (10). For which
+layers get changed on the way, see "What changes on the way" in
+[The OSI model](osi-model.md#what-changes-on-the-way).
+
+### Each device reads only what its job needs
+
+| Device | Its job | Reads up to | What it looks at |
+|---|---|---|---|
+| Switch | Get the frame out of the right switch port | Layer 2 | Destination MAC address |
+| Router | Get the packet one hop closer to the server | Layer 3 | Destination IP address |
+| Web server | Answer the request | Layer 7 | Everything |
+
+A switch's job is to move the frame out of the right switch port, on the
+local network. For that, it needs only the destination MAC address: it
+learns which MAC addresses sit behind each of its switch ports and sends the
+frame out of the matching one. The IP header names machines across networks,
+and the switch's job ends at "which switch port".
+
+A router's job is to move the packet one hop closer to the server. For that,
+it needs only the destination IP address, which it looks up in its route
+table (step 4). The TCP header names programs, through TCP ports such as
+443, and the router's job ends at "which machine".
+
+"Port" means two different things here. A switch port is a physical socket
+on the switch, where a cable plugs in. A TCP port is a number in the TCP
+header that names a program on a machine.
+
+The web server is where the message ends, so it removes and reads every
+layer, as each step describes.
+
+### The AWS players, by depth
+
+On AWS, you don't configure switches or routers. You configure services, and
+each one reads to a certain depth:
+
+| Player | Where it sits | What its rules look at | Reads up to |
+|---|---|---|---|
+| Network ACL | At the edge of a subnet | Protocol, port range, source or destination IP range | Layers 3–4 |
+| Security group | On a resource, such as an EC2 instance | Protocol, port range, source or destination (IP range or another security group) | Layers 3–4 |
+| Network Load Balancer (NLB) | In front of its targets | Listener protocol and port; picks a target by protocol, IP addresses and ports | Layer 4 |
+| Application Load Balancer (ALB) | In front of its targets | Path, host header, other HTTP headers, method, query string, source IP | Layer 7 |
+| AWS WAF | Inside the service it's attached to, such as an ALB or CloudFront | Source IP, country, headers, text patterns, SQL injection, cross-site scripting | Layer 7 |
+
+A load balancer spreads incoming requests across several targets, the
+servers behind it. A listener is the protocol and port it accepts
+connections on. WAF (web application firewall) allows, blocks or counts
+HTTP requests.
+
+AWS states the layer only for the load balancers: an NLB "functions at the
+fourth layer" of the OSI model, and an ALB at "the seventh layer". For the
+others, the layer follows from the rule fields. Take a security group rule
+that allows TCP port 443 from `0.0.0.0/0`, which means any IPv4 address. The
+source address comes from the IP header (layer 3), and so does the protocol
+number that says the content is TCP. The port comes from the TCP header
+(layer 4). No field reaches into the HTTP request. WAF works on HTTP and
+HTTPS requests, so it reads layer 7.
+
+### You can only decide on what you can see
+
+A player can base a decision only on the fields it reads, so how deep it
+reads sets how fine its choices can be:
+
+| Reads up to | Can tell apart | So it can allow or block |
+|---|---|---|
+| Layer 3 | Machines, by IP address | Everything from or to a machine or network |
+| Layer 4 | Programs, by TCP port | One service, such as HTTPS on port 443 |
+| Layer 7 | Requests, by path, headers or content | One page, or one kind of request |
+
+Take `https://example.com/home` and `https://example.com/admin`, requested
+by the same visitor. To a security group, the two look identical: same
+protocol, same port 443, same source IP address. The only difference, the
+path, is at layer 7. So a security group can let HTTPS in or keep it out,
+but only as a whole. For the same reason, it can't block a request that
+contains SQL injection, since that is text inside the request. WAF can.
+
+A rule has to read as deep as its deepest field. To make `/admin` reachable
+only from an office's IP range, a rule needs the source IP address
+(layer 3) and the path (layer 7), so it needs a layer 7 player. That can be
+an ALB listener rule with both conditions, or a WAF rule that matches the
+path and excludes the office's IP range.
+
+Routing follows the same pattern. An NLB chooses a target for each
+connection, by protocol, IP addresses and ports; its listener rules can only
+route by IP version (IPv4 or IPv6). An ALB reads each request, so it can
+send `/api` to one group of targets and everything else to another.
+
+### Encryption sets a ceiling
+
+With HTTPS, TLS encrypts everything above it (step 2): the path, the headers
+and the body. Only the two ends of the TLS connection can read it.
+Everything below TLS stays readable, because the devices on the way need it
+to deliver the message. What a device can read is not the same as what it
+does read:
+
+| Field | Can a router on the way read it? | Does it read it? |
+|---|---|---|
+| Destination IP address | Yes | Yes: its job needs it |
+| Destination TCP port | Yes: it isn't encrypted | No: its job doesn't need it |
+| Path `/admin` | No: it's encrypted | — |
+
+So without the keys, a device can read at most up to layer 4. For an ALB to
+read the request, the ALB has to be one end of the TLS connection. This is
+called terminating TLS: the device holds the server's certificate and
+private key, decrypts the request, reads it, and sends it to the target over
+a new connection, either as plain HTTP or encrypted again with HTTPS. The
+opposite is passing TLS through: the device forwards the encrypted bytes
+without reading them, and the target decrypts them.
+
+| Player | What it does with TLS |
+|---|---|
+| ALB, HTTPS listener | Terminates it, with a certificate such as one from AWS Certificate Manager (ACM). An HTTPS target group encrypts again to the targets. ALB listeners are HTTP or HTTPS only, so an ALB can't pass TLS through. |
+| CloudFront | Uses HTTPS with the visitor, with its own certificate or one from ACM. The connection to the origin, the server behind CloudFront, is set up separately, as HTTP or HTTPS. |
+| NLB, TLS listener | Terminates it, with a server certificate. |
+| NLB, TCP listener on port 443 | Passes it through; the targets decrypt. |
+| WAF | Doesn't decrypt. The ALB or CloudFront forwards the request to WAF for inspection. |
+
+Terminating TLS at the load balancer gives layer 7 choices, such as routing
+by path and attaching WAF, and takes the work of decryption off the servers.
+If the servers must decrypt for themselves, an NLB with a TCP listener fits:
+it still sees IP addresses and TCP ports, which is all it needs to spread
+connections. It gives up routing by path, and WAF, which can't be attached
+to an NLB.
+
+A device that terminates TLS can also change layer 7, the exception noted in
+"What changes on the way". For example, the server behind an ALB sees the
+ALB's IP address as the source, not the visitor's. So by default, the ALB
+adds the visitor's IP address to the request, in a header called
+`X-Forwarded-For`.
+
+These depths are the minimum each player needs, not a hard limit. An NLB
+works at layer 4, but with a TLS listener it decrypts. And some information
+above layer 4 can be read without decrypting. At the start of TLS, the
+browser sends the server's name, `example.com`, in a field called SNI
+(Server Name Indication), and in TLS 1.3 this field is not encrypted. AWS
+Network Firewall, which filters traffic entering and leaving a VPC, can
+allow or deny connections by that name.
+
+### Deeper costs more
+
+Reading deeper takes more work. A router reads a few fields at fixed places
+in the IP header. A layer 7 player has to decrypt first, then read the
+request as text and compare it with patterns. AWS shows this cost in two
+ways:
+- **Decryption is work.** A TLS listener on an NLB, or an HTTPS listener on
+  an ALB, offloads "the work of encryption and decryption" from the servers.
+- **WAF prices its rules by effort.** Each WAF rule uses web ACL capacity
+  units (WCUs) that reflect its relative cost. A regex check uses more than
+  a size check, and inspecting a JSON body more again. WAF also inspects
+  only part of a large request: the first 8 KB of the body behind an ALB,
+  and by default the first 16 KB behind CloudFront (up to 64 KB).
+
+A DDoS (distributed denial of service) attack is many machines flooding a
+target to make it unavailable. AWS names three kinds, by layer:
+
+| Layer | Kind of attack | Example |
+|---|---|---|
+| 3 | Volumetric: fills the network | A flood of packets |
+| 4 | Protocol: abuses a protocol | A SYN flood: masses of TCP connection openings that use up the target's connection state |
+| 7 | Application: valid-looking requests, in huge numbers | A flood of `GET /search` requests |
+
+AWS Shield Standard is automatic and free. It defends against common
+layer 3 and layer 4 attacks at the perimeter, the first point where traffic
+enters AWS. With CloudFront, Route 53 or Global Accelerator in front, that
+perimeter is the edge of the AWS network, far from the servers. Shield
+Advanced is a paid service that also mitigates layer 7 attacks
+automatically. WAF inspects the content at layer 7 and can also limit how
+many requests a client sends in a given window, with a rate-based rule.
+
+Put together: floods are stopped cheaply at layers 3 and 4, near the edge,
+and only the remaining traffic gets the costlier inspection at layer 7. AWS
+doesn't state this as a rule; it follows from how the services split the
+work.
+
+**Sources for this section:**
+- [RFC 7368, IPv6 Home Networking Architecture Principles](https://www.rfc-editor.org/rfc/rfc7368):
+  Section 3.2.1, a switch learns MAC addresses on its ports.
+- [RFC 1812, Requirements for IP Version 4 Routers](https://www.rfc-editor.org/rfc/rfc1812):
+  Section 5.2.4.3, a router looks up the destination address.
+- [RFC 9846, TLS 1.3](https://www.rfc-editor.org/rfc/rfc9846):
+  Section 1, data is visible only to the endpoints.
+- [RFC 6066, TLS Extensions](https://www.rfc-editor.org/rfc/rfc6066):
+  Section 3, the Server Name Indication extension.
+- [RFC 9849, TLS Encrypted Client Hello](https://www.rfc-editor.org/rfc/rfc9849):
+  Section 1, the SNI is left unencrypted in TLS 1.3.
+- [Amazon VPC User Guide: Security groups](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html)
+  and [Security group rules](https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html):
+  the parts of a rule: protocol, port range, source or destination.
+- [Amazon VPC User Guide: Network ACL rules](https://docs.aws.amazon.com/vpc/latest/userguide/nacl-rules.html):
+  the parts of a rule.
+- [ELB: What is a Network Load Balancer?](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html):
+  works at layer 4; target selection by flow hash.
+- [ELB: Listeners for your Network Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-listeners.html):
+  TLS listeners terminate and decrypt; TCP listeners pass encrypted traffic
+  through; listener rules route by IP version.
+- [ELB: What is an Application Load Balancer?](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html):
+  works at layer 7; routing on path, host, headers, method, query string
+  and source IP; certificates from ACM.
+- [ELB: Listeners for your Application Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-listeners.html):
+  HTTP and HTTPS listeners; rules with several conditions.
+- [ELB: Target groups for your Application Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html):
+  HTTP and HTTPS to targets.
+- [ELB: HTTP headers and Application Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/x-forwarded-headers.html):
+  `X-Forwarded-For`, appended by default.
+- [CloudFront Developer Guide: Require HTTPS between viewers and CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-https-viewers-to-cloudfront.html):
+  HTTPS with viewers, separate from HTTPS to the origin.
+- [AWS WAF Developer Guide: What is AWS WAF?](https://docs.aws.amazon.com/waf/latest/developerguide/what-is-aws-waf.html):
+  resources it protects; request criteria and actions.
+- [AWS WAF: Logical rule statements](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statements-logical.html):
+  combining and negating statements.
+- [AWS WAF: Rate-based rule statement](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-rate-based.html):
+  limiting requests that come too fast.
+- [AWS WAF: Web ACL capacity units](https://docs.aws.amazon.com/waf/latest/developerguide/aws-waf-capacity-units.html):
+  rule capacity reflects relative cost.
+- [AWS WAF: Oversize request components](https://docs.aws.amazon.com/waf/latest/developerguide/waf-oversize-request-components.html):
+  body inspection limits.
+- [AWS Shield: How Shield works](https://docs.aws.amazon.com/waf/latest/developerguide/ddos-overview.html):
+  attack classes at layers 3, 4 and 7.
+- [AWS Shield Standard overview](https://docs.aws.amazon.com/waf/latest/developerguide/ddos-standard-summary.html):
+  network and transport layer protection at the perimeter.
+- [AWS Network Firewall: What is AWS Network Firewall?](https://docs.aws.amazon.com/network-firewall/latest/developerguide/what-is-aws-network-firewall.html)
+  and [Stateful domain list rule groups](https://docs.aws.amazon.com/network-firewall/latest/developerguide/stateful-rule-groups-domain-names.html):
+  filtering at the VPC perimeter, by the TLS SNI or HTTP `Host` header.
