@@ -278,6 +278,9 @@ called a hop:
 client → home router → ISP router → … many routers … → server's router → server
 ```
 
+The ISP (Internet Service Provider) is the company that sells the internet
+access, and its routers connect the home network to the rest of the internet.
+
 The first decision is made on the client. The kernel checks whether the
 destination is on its own local network. It isn't, so the packet goes to the
 default gateway, the nearest router. From there, every router does the same

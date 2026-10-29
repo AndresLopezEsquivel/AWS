@@ -10,19 +10,19 @@ The "Example devices" column names the device whose main job sits at that
 layer. A device reads its own layer and the ones below it, and a dash means
 no common device sits there.
 
-The "Journey step" column points to the step in
-[The journey of an HTTPS request](https-request-journey.md) where each layer
-does its work. A dash means the journey doesn't show that layer.
+[The journey of an HTTPS request](https-request-journey.md) follows one
+request through these layers: each layer adds its piece on the client, and
+the server removes them in reverse order.
 
-| Layer | Job | Unit | Example protocols | Example devices | TCP/IP layer | Journey step |
-|---|---|---|---|---|---|---|
-| 7 Application | Lets applications communicate: defines their messages and what they mean | Message | HTTP, DNS, SSH | — | Application | Step 1 |
-| 6 Presentation | Agrees on how data is represented, such as format and compression | — | None separate (see notes) | — | Application | Step 2 (TLS, by convention) |
-| 5 Session | Organizes the dialogue between the two ends: opening, closing, synchronizing | — | None separate (see notes) | — | Application | — |
-| 4 Transport | Delivers data between two programs, identified by ports, and (TCP) makes delivery reliable and in order | Segment (TCP), datagram (UDP) | TCP, UDP | — | Transport | Step 3 |
-| 3 Network | Delivers data between machines across networks, hop by hop, using IP addresses | Packet (IP datagram) | IPv4, IPv6 | Router | Internet | Step 4 |
-| 2 Data link | Delivers data to the next device on the same local network, using MAC addresses | Frame | Ethernet, Wi-Fi | Switch, Wi-Fi access point | Link | Step 5 |
-| 1 Physical | Turns bits into signals on a cable or over the air | Bit | Ethernet and Wi-Fi physical layers | Repeater | Link (see notes) | Step 6 |
+| Layer | Job | Unit | Example protocols | Example devices | TCP/IP layer |
+|---|---|---|---|---|---|
+| 7 Application | Lets applications communicate: defines their messages and what they mean | Message | HTTP, DNS, SSH | — | Application |
+| 6 Presentation | Agrees on how data is represented, such as format and compression | — | None separate (see notes) | — | Application |
+| 5 Session | Organizes the dialogue between the two ends: opening, closing, synchronizing | — | None separate (see notes) | — | Application |
+| 4 Transport | Delivers data between two programs, identified by ports, and (TCP) makes delivery reliable and in order | Segment (TCP), datagram (UDP) | TCP, UDP | — | Transport |
+| 3 Network | Delivers data between machines across networks, hop by hop, using IP addresses | Packet (IP datagram) | IPv4, IPv6 | Router | Internet |
+| 2 Data link | Delivers data to the next device on the same local network, using MAC addresses | Frame | Ethernet, Wi-Fi | Switch, Wi-Fi access point | Link |
+| 1 Physical | Turns bits into signals on a cable or over the air | Bit | Ethernet and Wi-Fi physical layers | Repeater | Link (see notes) |
 
 **Layers 5 and 6 in TCP/IP.** TCP/IP has no separate session or presentation
 layer. Its application layer covers OSI layers 5 to 7, so applications such as
@@ -107,5 +107,9 @@ Two exceptions:
   MAC and physical layer.
 - [IEEE 802.11-2024, Wireless LAN MAC and PHY](https://standards.ieee.org/ieee/802.11/10548/):
   MAC and physical layer for Wi-Fi.
+- [RFC 4118, Architecture Taxonomy for CAPWAP](https://www.rfc-editor.org/rfc/rfc4118):
+  Section 1.1, an access point provides the 802.11 MAC services to wireless
+  clients and connects to a layer 2 network; Section 3.1, the 802.11
+  definition of an access point.
 - [IEEE Registration Authority FAQ](https://standards.ieee.org/faqs/regauth/):
   MAC addresses identify network interfaces.
