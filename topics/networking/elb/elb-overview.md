@@ -507,6 +507,9 @@ target, so its requests keep reaching the same server:
 - An NLB uses the **source IP**. All clients behind the same NAT device
   share one IP address, so they all reach the same target.
 
+The data stays only on that target: stickiness routes requests, it doesn't
+share data.
+
 Stickiness has two costs:
 - **Uneven load.** When new servers are added, existing users stay on the
   old ones, so the new servers get little traffic at first.

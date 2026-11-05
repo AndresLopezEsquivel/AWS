@@ -34,7 +34,17 @@ flowchart TD
 
 An ALB's IP addresses aren't fixed: AWS changes them as it adds or
 replaces the ALB's nodes, and you can't assign your own Elastic IPs to an
-ALB. When clients need fixed IPs, such as a partner whose firewall only
+ALB. What stays fixed is the ALB's DNS name: AWS keeps it pointing at the
+current node IPs, so clients and your domain use the name, not the IPs.
+
+```mermaid
+flowchart LR
+    C[Client] -- "1. What are the IPs of<br/>my-alb-1234...elb.amazonaws.com?" --> DNS[DNS]
+    DNS -- "2. Right now: 3.x.x.10, 3.x.x.20<br/>(cache for 60 s)" --> C
+    C -- "3. Connect to one of them" --> N[ALB node]
+```
+
+When clients need fixed IPs, such as a partner whose firewall only
 lets its servers reach listed addresses, put one of these in front:
 
 - **An NLB with the ALB as its target.** The NLB has a static IP per AZ,
