@@ -1,5 +1,9 @@
 # AWS
 
+## Compute
+
+- [Auto Scaling groups](topics/compute/ec2-auto-scaling/auto-scaling-groups.md)
+
 ## Networking
 
 - [Load balancers – Overview](topics/networking/elb/elb-overview.md)
