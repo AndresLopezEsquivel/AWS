@@ -74,8 +74,8 @@ You assign subnets to the Auto Scaling group, ideally one per AZ. Since each sub
 When you attach the Auto Scaling group to a target group, the Auto Scaling group keeps the target group up to date:
 
 - Instances it launches are registered in the target group; instances it
-  terminates are deregistered. Before terminating, it waits out the
-  target group's deregistration delay so in-flight requests finish.
+  terminates are deregistered first. Requests already in progress can
+  continue until the target group's deregistration delay ends.
 - Use the same AZs for the Auto Scaling group and the load balancer. An instance in an AZ that isn't enabled on the ALB shows as `unused` and receives no traffic.
 
 ```mermaid
@@ -110,7 +110,9 @@ A scaling policy changes the desired number of instances based on an
 Amazon CloudWatch metric. CloudWatch is AWS's monitoring service: a
 metric is a value it records over time, such as CPU use, and an alarm
 goes off when a metric crosses a threshold. For an Auto Scaling group,
-the metric is usually the average across all its instances.
+the metric is usually the average across all its instances. The metric
+can be one AWS records, such as CPU use, or a custom metric that your
+application sends to CloudWatch.
 
 Scaling out adds instances; scaling in removes them. A policy never moves
 the desired number outside the minimum and maximum.
@@ -276,14 +278,18 @@ flowchart LR
   automatic registration and deregistration.
 - [About the health checks for your Auto Scaling group](https://docs.aws.amazon.com/autoscaling/ec2/userguide/health-checks-overview.html):
   EC2 status checks always on, ELB health checks off until turned on,
-  waiting for the deregistration delay.
+  waiting for the deregistration delay before terminating unhealthy
+  instances.
 - [Target groups for your Application Load Balancers](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html):
   targets in an AZ not enabled for the load balancer aren't used.
 - [Dynamic scaling for Amazon EC2 Auto Scaling](https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scale-based-on-demand.html):
   the three policy types, metric averaged across the group, limits of the
   minimum and maximum, the policy giving the most instances wins.
 - [Target tracking scaling policies](https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html):
-  alarms managed by AWS.
+  alarms managed by AWS, custom metrics that must change in proportion
+  to the number of instances.
+- [Publish custom metrics](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/publishingMetrics.html):
+  your own metrics sent to CloudWatch.
 - [Step and simple scaling policies](https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-simple-step.html):
   alarms created by you, step adjustments, one adjustment plus cooldown.
 - [Scaling cooldowns](https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scaling-cooldowns.html):
@@ -308,6 +314,11 @@ flowchart LR
 - [Use instance scale-in protection](https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-instance-protection.html):
   what it protects against and what it doesn't, setting it for new
   instances.
+- [Amazon EC2 Auto Scaling instance lifecycle](https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-lifecycle.html):
+  a terminating instance deregistered, existing connections continuing
+  until the deregistration delay expires.
+- [Register targets with your target group](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-register-targets.html):
+  registering and deregistering targets, connection draining.
 - [Amazon EC2 Auto Scaling lifecycle hooks](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html):
   launch and termination hooks, typical uses.
 - [How lifecycle hooks work](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks-overview.html):

@@ -502,6 +502,8 @@ reaches a different server, that data isn't there.
 target, so its requests keep reaching the same server:
 - An ALB uses a **cookie**: either one the load balancer creates
   (duration-based), or the application's own cookie (application-based).
+  The application's cookie can have any name except `AWSALB`,
+  `AWSALBAPP` and `AWSALBTG`, which the load balancer reserves.
   The client must accept cookies. The routing algorithm picks the target
   only for the first request; after that, the cookie decides.
 - An NLB uses the **source IP**. All clients behind the same NAT device
@@ -593,8 +595,9 @@ individual targets; it doesn't split traffic between versions.
 - [Edit target group attributes for your Application Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-target-group-attributes.html):
   - "Sticky sessions", cookie types, client support for cookies, and the
     algorithm used only for the first request;
-  - "Duration-based stickiness" and "Application-based stickiness", a new
-    target when the old one is unhealthy or deregistered, and "Manual
+  - "Duration-based stickiness" and "Application-based stickiness", the
+    reserved cookie names, a new target when the old one is unhealthy or
+    deregistered, and "Manual
     rebalancing" when targets are added;
   - "Deregistration delay", the `draining` state and the 300-second
     default;
